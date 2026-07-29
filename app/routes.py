@@ -1,107 +1,68 @@
-from fastapi import APIRouter, HTTPException, Response
-from app.models import TaskCreate, TaskUpdate
+from fastapi import APIRouter, HTTPException
+from app.database import get_connection
 
 router = APIRouter()
 
 
-@router.get("/", summary="API Information")
+@router.get("/")
 def root():
     return {
-        "name": "CRUD API",
-        "version": "1.0",
-        "endpoints": [
-            "/health",
-            "/tasks"
-        ]
+        "name": "Task API",
+        "version": "2.0",
+        "endpoints": ["/tasks"]
     }
 
-@router.get("/health", summary="Health Check")
+
+@router.get("/health")
 def health():
-    return {
-        "status": "ok"
-    }
+    return {"status": "ok"}
 
 
-@router.get("/tasks", summary="Get all tasks")
+@router.get("/tasks")
 def get_tasks():
-    return tasks
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT * FROM tasks")
+
+    rows = cursor.fetchall()
+
+    conn.close()
+
+    return [
+        {
+            "id": row["id"],
+            "title": row["title"],
+            "done": bool(row["done"])
+        }
+        for row in rows
+    ]
 
 
-@router.get("/tasks/{task_id}", summary="Get a task by ID")
+@router.get("/tasks/{task_id}")
 def get_task(task_id: int):
 
-    for task in tasks:
-        if task["id"] == task_id:
-            return task
+    conn = get_connection()
+    cursor = conn.cursor()
 
-    raise HTTPException(
-        status_code=404,
-        detail=f"Task {task_id} not found"
+    cursor.execute(
+        "SELECT * FROM tasks WHERE id=?",
+        (task_id,)
     )
 
+    row = cursor.fetchone()
 
-@router.post("/tasks", status_code=201, summary="Create a task")
-def create_task(task: TaskCreate):
+    conn.close()
 
-    if task.title.strip() == "":
+    if row is None:
         raise HTTPException(
-            status_code=400,
-            detail="Title cannot be empty"
+            status_code=404,
+            detail="Task not found"
         )
 
-    new_task = {
-        "id": max([t["id"] for t in tasks], default=0) + 1,
-        "title": task.title,
-        "done": False
+    return {
+        "id": row["id"],
+        "title": row["title"],
+        "done": bool(row["done"])
     }
-
-    tasks.append(new_task)
-
-    return new_task
-
-
-@router.put("/tasks/{task_id}", summary="Update a task")
-def update_task(task_id: int, updated: TaskUpdate):
-
-    for task in tasks:
-
-        if task["id"] == task_id:
-
-            if updated.title is not None:
-
-                if updated.title.strip() == "":
-                    raise HTTPException(
-                        status_code=400,
-                        detail="Title cannot be empty"
-                    )
-
-                task["title"] = updated.title
-
-            if updated.done is not None:
-                task["done"] = updated.done
-
-            return task
-
-    raise HTTPException(
-        status_code=404,
-        detail=f"Task {task_id} not found"
-    )
-
-
-@router.delete(
-    "/tasks/{task_id}",
-    status_code=204,
-    summary="Delete a task"
-)
-def delete_task(task_id: int):
-
-    for i, task in enumerate(tasks):
-
-        if task["id"] == task_id:
-            tasks.pop(i)
-            return Response(status_code=204)
-
-    raise HTTPException(
-        status_code=404,
-        detail=f"Task {task_id} not found"
-    )
