@@ -1,5 +1,4 @@
 from fastapi import APIRouter, HTTPException, Response
-from app.database import tasks
 from app.models import TaskCreate, TaskUpdate
 
 router = APIRouter()
