@@ -149,6 +149,38 @@ task-api/
 
 ---
 
+## Why SQLite?
+
+SQLite was chosen because it is a lightweight, serverless database that requires no separate installation or configuration. It stores all data in a single file (tasks.db), making it ideal for small projects and learning backend development. The application automatically creates the database and required table on the first run.
+
+Database File Location
+
+The SQLite database file is stored in the project root directory as:
+
+tasks.db
+
+The database is automatically created when the application starts if it does not already exist.
+
+How to Start the Project
+
+After installing the dependencies, start the FastAPI server using:
+
+uvicorn app.main:app --reload
+
+The API will be available at:
+
+http://127.0.0.1:8000
+
+Swagger UI:
+
+http://127.0.0.1:8000/docs
+
+## Example SQL Query
+
+The following SQL query was executed using DB Browser for SQLite to view all tasks stored in the database:
+
+SELECT \* FROM tasks;
+
 ## Author
 
 **Tharun Kumar**
