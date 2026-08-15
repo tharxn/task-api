@@ -28,7 +28,7 @@ def get_tasks():
     conn = get_connection()
     cursor = conn.cursor()
 
-    cursor.execute("SELECT * FROM tasks")
+    cur.execute("SELECT id, title, done FROM tasks ORDER BY id")
 
     rows = cursor.fetchall()
 
@@ -50,8 +50,8 @@ def get_task(task_id: int):
     conn = get_connection()
     cursor = conn.cursor()
 
-    cursor.execute(
-        "SELECT * FROM tasks WHERE id=?",
+    cur.execute(
+        "SELECT id, title, done FROM tasks WHERE id=%s",
         (task_id,)
     )
 
@@ -84,13 +84,16 @@ def create_task(task: TaskCreate):
     conn = get_connection()
     cursor = conn.cursor()
 
-    cursor.execute(
-        "INSERT INTO tasks(title, done) VALUES(?, ?)",
-        (task.title, 0)
+    cur.execute(
+        """
+        INSERT INTO tasks(title, done)
+        VALUES (%s, %s)
+        RETURNING id
+        """,
+        (task.title, False)
     )
 
-    task_id = cursor.lastrowid
-
+    task_id = cur.fetchone()[0]
     conn.commit()
     conn.close()
 
@@ -106,9 +109,13 @@ def update_task(task_id: int, task: TaskUpdate):
     conn = get_connection()
     cursor = conn.cursor()
 
-    cursor.execute(
-        "SELECT * FROM tasks WHERE id=?",
-        (task_id,)
+    cur.execute(
+        """
+        UPDATE tasks
+        SET title=%s, done=%s
+        WHERE id=%s
+        """,
+        (title, done, task_id)
     )
 
     existing = cursor.fetchone()
@@ -155,10 +162,10 @@ def delete_task(task_id: int):
     conn = get_connection()
     cursor = conn.cursor()
 
-    cursor.execute(
-        "SELECT * FROM tasks WHERE id=?",
+    cur.execute(
+        "DELETE FROM tasks WHERE id=%s",
         (task_id,)
-    )
+    )   
 
     if cursor.fetchone() is None:
         conn.close()
