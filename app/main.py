@@ -1,23 +1,28 @@
 import logging
-import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 
 from app.routes import router
 from app.service import InvalidTitle, TaskNotFound
-from app.auth.client import get_supabase_client
+from app.auth.client import check_supabase_connection, get_supabase_client, supabase_settings
+from app.auth.errors import AuthError
+from app.auth.routes import router as auth_router
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger = logging.getLogger("uvicorn.error")
-    if os.getenv("SUPABASE_URL") and os.getenv("SUPABASE_KEY"):
+    if all(supabase_settings()):
         client = get_supabase_client()
         try:
             next(client)
-            logger.info("Server running; Supabase client initialized")
+            await run_in_threadpool(check_supabase_connection)
+            logger.info("Server running and connected to Supabase")
+        except AuthError:
+            logger.warning("Server running; Supabase Auth is currently unavailable")
         finally:
             client.close()
     else:
@@ -32,6 +37,16 @@ app = FastAPI(
 )
 
 
+@app.exception_handler(AuthError)
+def auth_error(request: Request, exc: AuthError):
+    headers = {"Cache-Control": "no-store"}
+    if exc.status_code == 401:
+        headers["WWW-Authenticate"] = "Bearer"
+    return JSONResponse(
+        status_code=exc.status_code, content={"error": exc.message}, headers=headers
+    )
+
+
 @app.exception_handler(TaskNotFound)
 def task_not_found(request: Request, exc: TaskNotFound):
     return JSONResponse(status_code=404, content={"detail": str(exc)})
@@ -43,3 +58,4 @@ def invalid_title(request: Request, exc: InvalidTitle):
 
 
 app.include_router(router)
+app.include_router(auth_router)
