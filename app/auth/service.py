@@ -6,7 +6,7 @@ from supabase_auth.errors import AuthError as ProviderAuthError
 from supabase_auth.errors import AuthRetryableError
 
 from app.auth.errors import AuthError
-from app.auth.models import Credentials
+from app.auth.models import Credentials, Profile
 
 
 @contextmanager
@@ -58,3 +58,11 @@ class AuthService:
             "expires_in": session.expires_in,
             "expires_at": session.expires_at,
         }
+
+    def verify_token(self, token: str) -> Profile:
+        with provider_errors(401, "Invalid or expired token"):
+            response = self.client.auth.get_user(token)
+        if response is None or response.user is None:
+            raise AuthError(401, "Invalid or expired token")
+        user = response.user
+        return Profile(id=user.id, email=user.email, created_at=user.created_at)

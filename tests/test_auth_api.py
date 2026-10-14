@@ -54,6 +54,10 @@ class AuthApiTests(unittest.TestCase):
                     "expires_at": int(time.time()) + 3600,
                     "user": USER,
                 })
+            if request.url.path == "/auth/v1/user":
+                if request.headers.get("authorization") == f"Bearer {self.access_token}":
+                    return httpx.Response(200, json=USER)
+                return httpx.Response(401, json={"msg": "Invalid JWT", "code": "bad_jwt"})
             return httpx.Response(404)
 
         self.transport = transport
@@ -134,4 +138,26 @@ class AuthApiTests(unittest.TestCase):
 
     def test_unverified_token_cannot_open_the_profile(self):
         response = self.http.get("/protected/profile", headers={"Authorization": "Bearer unverified"})
-        self.assertEqual(response.status_code, 501)
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json(), {"error": "Invalid or expired token"})
+
+    def test_valid_token_is_verified_by_supabase(self):
+        response = self.http.get("/protected/profile", headers={"Authorization": f"Bearer {self.access_token}"})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(set(response.json()), {"id", "email", "created_at"})
+        self.assertEqual(response.json()["id"], USER["id"])
+        self.assertEqual(self.calls[-1].url.path, "/auth/v1/user")
+        self.assertEqual(self.calls[-1].headers["authorization"], f"Bearer {self.access_token}")
+
+    def test_tampered_or_expired_tokens_are_rejected(self):
+        for token in (self.access_token + "tampered", "expired.fixture.token"):
+            with self.subTest(token=token):
+                response = self.http.get("/protected/profile", headers={"Authorization": f"Bearer {token}"})
+                self.assertEqual(response.status_code, 401)
+                self.assertEqual(response.json(), {"error": "Invalid or expired token"})
+
+    def test_provider_outage_fails_closed_with_503(self):
+        self.provider_status = 503
+        response = self.http.get("/protected/profile", headers={"Authorization": f"Bearer {self.access_token}"})
+        self.assertEqual(response.status_code, 503)
+        self.assertNotIn("provider detail", response.text)
