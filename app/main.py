@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 from app.routes import router
+from app.protected_routes import router as protected_router
 from app.service import InvalidTitle, TaskNotFound
 from app.auth.client import check_supabase_connection, get_supabase_client, supabase_settings
 from app.auth.errors import AuthError
@@ -59,3 +60,4 @@ def invalid_title(request: Request, exc: InvalidTitle):
 
 app.include_router(router)
 app.include_router(auth_router)
+app.include_router(protected_router)

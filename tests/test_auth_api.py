@@ -116,3 +116,22 @@ class AuthApiTests(unittest.TestCase):
         self.provider_status = 429
         response = self.http.post("/auth/login", json={"email": USER["email"], "password": "password"})
         self.assertEqual(response.status_code, 429)
+
+    def test_public_info_is_open(self):
+        response = self.http.get("/public/info")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"message": "Welcome stranger! This info is public."})
+        self.assertEqual(self.calls, [])
+
+    def test_missing_or_malformed_bearer_headers_are_401(self):
+        for header in (None, "", "Bearer", "Basic abc", "Bearer a b", "Bearer  "):
+            with self.subTest(header=header):
+                headers = {"Authorization": header} if header is not None else {}
+                response = self.http.get("/protected/profile", headers=headers)
+                self.assertEqual(response.status_code, 401)
+                self.assertEqual(response.json(), {"error": "Access token required"})
+        self.assertEqual(self.calls, [])
+
+    def test_unverified_token_cannot_open_the_profile(self):
+        response = self.http.get("/protected/profile", headers={"Authorization": "Bearer unverified"})
+        self.assertEqual(response.status_code, 501)
