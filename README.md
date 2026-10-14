@@ -1,6 +1,121 @@
-# Task API
+# Task API: Supabase Auth and PostgreSQL
 
-A CRUD REST API built with FastAPI and PostgreSQL. Docker Compose starts the app and database together. Tasks are stored in a named Docker volume and survive app and database container restarts.
+A FastAPI project with Supabase signup, login, logout, and bearer-protected user endpoints, alongside persistent task CRUD in PostgreSQL. Docker Compose starts the app and database together.
+
+## Supabase Auth: setup and test
+
+The auth assignment adds signup, login, logout, and two user-only routes to the existing Postgres project. Supabase manages passwords and issues tokens. The backend verifies bearer tokens with `supabase.auth.get_user(token)` before returning private data.
+
+### 1. Configure a Supabase project
+
+Create a free project in the [Supabase Dashboard](https://supabase.com/dashboard). Open **Connect** to copy the Project URL and publishable key (the legacy anon key also works). In your local `.env`, add:
+
+```dotenv
+SUPABASE_URL=https://your-project-id.supabase.co
+SUPABASE_KEY=your-anon-or-publishable-key
+PORT=8000
+```
+
+These alternative names are also supported:
+
+```dotenv
+NEXT_PUBLIC_SUPABASE_URL=https://your-project-id.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-publishable-key
+```
+
+Use one matching URL/key pair. The `SUPABASE_*` names take precedence if both forms are set. Use a publishable/anon key; this app does not need a service-role or secret key. Keep real values and test passwords in `.env`, which is ignored by Git and excluded from the image.
+
+Email/password authentication must be enabled in the project's Authentication settings. With email confirmation enabled, signup returns a user but login works only after the verification link is clicked. A Supabase **dashboard** account does not automatically become a user in the project's Authentication user list.
+
+### 2. Start the API
+
+After creating `.env` from `.env.example` and filling in Supabase values:
+
+```bash
+docker compose up --build -d --wait
+```
+
+The API runs on [http://localhost:8000](http://localhost:8000). Successful startup checks the actual Supabase Auth health endpoint and logs `Server running and connected to Supabase`. If Supabase is unavailable, auth fails closed; the existing Postgres API can still start. Missing Supabase settings return 503 from auth operations.
+
+### 3. Try the flow in Swagger
+
+Open [http://localhost:8000/docs](http://localhost:8000/docs).
+
+1. Expand **POST /auth/signup**, click **Try it out**, and submit your email/password. Expect 201 and a `user` object.
+2. Confirm the signup email if `confirmation_required` is true. A redirect to a local page that is not running can fail after email verification has already completed.
+3. Call **POST /auth/login** with the same credentials. Copy `access_token`; `refresh_token` is also returned.
+4. Click **Authorize**, paste only the access token (without the `Bearer` prefix), and authorize.
+5. Execute **GET /protected/profile** and **GET /protected/dashboard**. Expect 200.
+6. Remove authorization, or change one character in the token's signature. The protected route returns 401.
+7. Restore a valid token and execute **POST /auth/logout**. Expect 204 with no response body. Clear tokens from the client afterward.
+
+The lock icons identify routes that require a verified bearer token:
+
+![Swagger UI showing signup, login, logout, and protected routes](screenshots/swagger-auth.jpg)
+
+### Auth API reference
+
+| Method | Endpoint | Auth required | Success |
+| --- | --- | --- | --- |
+| POST | `/auth/signup` | No | 201; user and confirmation state |
+| POST | `/auth/login` | No | 200; access token, refresh token, token type, expiry |
+| POST | `/auth/logout` | Bearer JWT | 204; current session signed out |
+| GET | `/public/info` | No | 200; public welcome message |
+| GET | `/protected/profile` | Bearer JWT | 200; verified user's ID, email, creation time |
+| GET | `/protected/dashboard` | Bearer JWT | 200; dashboard message and verified user ID |
+
+Missing/blank email or password returns 400 with `{"error":"Email and password are required"}`. Invalid login returns 401 with `{"error":"Invalid login credentials"}`. Missing or malformed authorization returns 401 with `{"error":"Access token required"}`. Rejected tokens return 401 with `{"error":"Invalid or expired token"}`. Rate limits return 429; an unavailable auth provider returns 503.
+
+The original `/tasks` CRUD routes remain shared and public. This assignment protects `/protected/*` and logout; task ownership and admin-role authorization are not implemented.
+
+### How protection and logout work
+
+Auth routes use a separate Supabase client for each request, with session persistence and automatic refresh disabled. Users cannot inherit another request's SDK session. The shared FastAPI `get_current_user` dependency extracts the bearer token and asks Supabase to validate it. Both profile and dashboard use that same guard. The app never trusts an unverified JWT payload.
+
+Logout verifies the bearer token first, then calls the Python SDK's token-taking `auth.admin.sign_out(token, scope="local")` method. This is the SDK-supported way to sign out a supplied user JWT without storing a server session or requiring a refresh token. The request uses the user's token and the project's publishable key, with no service-role key. Local scope signs out that session.
+
+Supabase revokes the session's refresh token. An issued access JWT can remain valid until expiry, so clients must discard both tokens; logout is not a promise of immediate JWT invalidation for every verifier. See [Supabase's logout documentation](https://supabase.com/docs/reference/python/auth-signout).
+
+### Reproduce the live auth checks
+
+Install `requirements.txt` in a Python virtual environment. Add a test app user's credentials only to your local `.env`:
+
+```dotenv
+AUTH_TEST_EMAIL=
+AUTH_TEST_PASSWORD=
+```
+
+These values are used only by the local verification script and are not passed into the app container.
+
+For a new app user:
+
+```bash
+python scripts/verify_auth.py --signup-if-needed
+```
+
+If email confirmation is required, click the verification link, then run:
+
+```bash
+python scripts/verify_auth.py
+```
+
+The script tests public access, missing credentials, login, invalid credentials, valid profile/dashboard access, a tampered signature, missing/invalid tokens, logout, and refresh-token rejection after logout. It does not print passwords or tokens. Set `API_BASE_URL` if testing on a different local port.
+
+**Live verification on 14 October 2026:** signup returned 201; email confirmation was completed; login and both protected routes returned 200; missing/invalid/tampered tokens returned 401; logout returned 204; Supabase rejected the revoked refresh token with 400. The protected profile also returned 401 with the logged-out access token in this run. These were requests to the configured Supabase project, separate from the mocked tests. The same flow passed through the Docker-hosted API. Swagger's login, Authorize dialog, and protected profile were also exercised in the browser, returning 200.
+
+### Assignment commits
+
+The assignment was implemented in order, with separate commits for:
+
+- Stage 0: setup server and supabase client
+- Stage 1: signup and login routes working
+- Stage 2: public route and unverified protected route
+- Stage 3: profile route token verification
+- Stage 4: auth middleware and logout endpoint
+- Stage 5: Swagger UI documentation with bearer auth
+- Stage 6: publish to GitHub and write README
+
+The Stage 2 checkpoint fails closed while verification is not implemented; later stages add real verification. No unverified profile data is returned at that checkpoint.
 
 ## Start the whole stack
 
@@ -183,13 +298,15 @@ The named volume survives `down`. Adding `-v` removes the database volume and it
 
 ## Tests
 
-Run the shared contract tests against memory and the live Postgres database:
+Run the auth tests and shared repository contract tests against memory and the live Postgres database:
+
+Verified in the rebuilt Docker container on 14 October 2026: **35 tests passed, no skips**.
 
 ```bash
 docker compose exec -e RUN_POSTGRES_TESTS=1 app python -m unittest discover -v
 ```
 
-The tests create their own rows and clean up those rows without clearing existing tasks. They cover CRUD, ordering, partial updates, `done=false`, missing IDs, blank-title validation, SQL punctuation/Unicode, and committed reads from a new repository instance.
+The 20 auth/configuration tests use the real Supabase SDK with mocked HTTP responses; they do not contact Supabase or create real users. They cover credentials, headers, token verification, dependency reuse, logout, provider failures, and OpenAPI security. The 15 repository tests cover memory and real PostgreSQL. They create their own rows and clean up those rows without clearing existing tasks, covering CRUD, ordering, partial updates, `done=false`, missing IDs, blank titles, SQL punctuation/Unicode, and committed reads from a new repository instance.
 
 For memory tests without Docker:
 
@@ -200,7 +317,7 @@ pip install -r requirements.txt
 python -m unittest discover -v
 ```
 
-The eight Postgres tests are skipped unless `RUN_POSTGRES_TESTS=1`.
+Without Postgres, 27 tests pass and the eight Postgres tests are skipped unless `RUN_POSTGRES_TESTS=1`.
 
 ## Run the app outside Docker
 
@@ -225,7 +342,10 @@ The connection helper loads the project-root `.env` without overriding an existi
 
 ```text
 app/
-  main.py                  FastAPI app and HTTP error handlers
+  __main__.py              Server entry point and PORT configuration
+  main.py                  FastAPI app, startup check, and HTTP error handlers
+  protected_routes.py      Public info, protected profile and dashboard
+  auth/                    Supabase client, service, dependency, models, routes
   routes.py                HTTP endpoints
   models.py                Request models
   service.py               Task rules
@@ -236,6 +356,7 @@ app/
     memory.py              In-memory implementation
     postgres.py            PostgreSQL implementation
   init.sql                 Table definition
+scripts/verify_auth.py     Live Supabase signup/login/protection/logout checks
 scripts/verify_stack.py    HTTP CRUD and restart/recreation proof
 tests/                     Shared repository/service tests
 docker-compose.yml         App, Postgres, healthchecks, named volume
