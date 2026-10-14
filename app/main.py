@@ -1,13 +1,34 @@
+import logging
+import os
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from app.routes import router
 from app.service import InvalidTitle, TaskNotFound
+from app.auth.client import get_supabase_client
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger = logging.getLogger("uvicorn.error")
+    if os.getenv("SUPABASE_URL") and os.getenv("SUPABASE_KEY"):
+        client = get_supabase_client()
+        try:
+            next(client)
+            logger.info("Server running; Supabase client initialized")
+        finally:
+            client.close()
+    else:
+        logger.warning("Supabase Auth is not configured; set SUPABASE_URL and SUPABASE_KEY")
+    yield
 
 app = FastAPI(
     title="Task API",
-    description="Task CRUD API using FastAPI and PostgreSQL",
-    version="2.0",
+    description="Task CRUD with PostgreSQL and Supabase authentication",
+    version="3.0",
+    lifespan=lifespan,
 )
 
 
