@@ -1,7 +1,8 @@
 from typing import Annotated
 from dataclasses import dataclass, field
 
-from fastapi import Body, Depends, Header
+from fastapi import Body, Depends, Request
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from supabase import Client
 
 from app.auth.client import get_supabase_client
@@ -26,11 +27,28 @@ def get_auth_service(client: Annotated[Client, Depends(get_supabase_client)]) ->
     return AuthService(client)
 
 
-def require_access_token(authorization: Annotated[str | None, Header()] = None) -> str:
-    parts = authorization.split() if authorization else []
-    if len(parts) != 2 or parts[0].lower() != "bearer":
+bearer = HTTPBearer(
+    auto_error=False,
+    scheme_name="SupabaseBearer",
+    bearerFormat="JWT",
+    description="Paste the access_token from POST /auth/login. Do not include the Bearer prefix.",
+)
+
+
+def require_access_token(
+    request: Request,
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)],
+) -> str:
+    headers = request.headers.getlist("authorization")
+    parts = headers[0].split() if len(headers) == 1 else []
+    if (
+        len(parts) != 2
+        or parts[0].lower() != "bearer"
+        or credentials is None
+        or credentials.credentials != parts[1]
+    ):
         raise AuthError(401, "Access token required")
-    return parts[1]
+    return credentials.credentials
 
 
 @dataclass(frozen=True)

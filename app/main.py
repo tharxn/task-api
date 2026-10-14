@@ -35,6 +35,11 @@ app = FastAPI(
     description="Task CRUD with PostgreSQL and Supabase authentication",
     version="3.0",
     lifespan=lifespan,
+    openapi_tags=[
+        {"name": "Authentication", "description": "Supabase signup, login, and session logout."},
+        {"name": "Public and protected", "description": "Public information and bearer-protected user routes."},
+        {"name": "Tasks", "description": "Existing shared task CRUD from the Postgres assignment."},
+    ],
 )
 
 
@@ -58,6 +63,6 @@ def invalid_title(request: Request, exc: InvalidTitle):
     return JSONResponse(status_code=400, content={"detail": str(exc)})
 
 
-app.include_router(router)
 app.include_router(auth_router)
 app.include_router(protected_router)
+app.include_router(router, tags=["Tasks"])

@@ -183,3 +183,19 @@ class AuthApiTests(unittest.TestCase):
         self.assertEqual([call.url.path for call in self.calls], ["/auth/v1/user", "/auth/v1/logout"])
         self.assertEqual(self.calls[-1].headers["authorization"], f"Bearer {self.access_token}")
         self.assertEqual(self.calls[-1].url.params["scope"], "local")
+
+    def test_swagger_marks_only_auth_required_routes_as_locked(self):
+        schema = self.http.get("/openapi.json").json()
+        self.assertEqual(schema["components"]["securitySchemes"]["SupabaseBearer"]["scheme"], "bearer")
+        for path, method in (("/protected/profile", "get"), ("/protected/dashboard", "get"), ("/auth/logout", "post")):
+            self.assertEqual(schema["paths"][path][method]["security"], [{"SupabaseBearer": []}])
+        for path, method in (("/public/info", "get"), ("/auth/signup", "post"), ("/auth/login", "post")):
+            self.assertNotIn("security", schema["paths"][path][method])
+
+    def test_duplicate_authorization_headers_are_rejected(self):
+        response = self.http.get("/protected/profile", headers=[
+            ("Authorization", f"Bearer {self.access_token}"),
+            ("Authorization", "Bearer second-token"),
+        ])
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(self.calls, [])
