@@ -66,3 +66,9 @@ class AuthService:
             raise AuthError(401, "Invalid or expired token")
         user = response.user
         return Profile(id=user.id, email=user.email, created_at=user.created_at)
+
+    def logout(self, token: str) -> None:
+        with provider_errors(401, "Invalid or expired token"):
+            # The SDK's token-taking sign_out variant avoids storing a session
+            # or needing a refresh token. It uses this user's JWT, not an admin key.
+            self.client.auth.admin.sign_out(token, scope="local")

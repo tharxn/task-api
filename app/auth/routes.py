@@ -2,7 +2,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Response
 
-from app.auth.dependencies import get_auth_service, require_credentials
+from app.auth.dependencies import AuthenticatedUser, get_auth_service, get_current_user, require_credentials
 from app.auth.models import Credentials
 from app.auth.service import AuthService
 
@@ -21,3 +21,9 @@ def signup(credentials: ValidatedCredentials, service: Service, response: Respon
 def login(credentials: ValidatedCredentials, service: Service, response: Response):
     response.headers["Cache-Control"] = "no-store"
     return service.login(credentials)
+
+
+@router.post("/logout", status_code=204)
+def logout(user: Annotated[AuthenticatedUser, Depends(get_current_user)], service: Service):
+    service.logout(user.token)
+    return Response(status_code=204, headers={"Cache-Control": "no-store"})

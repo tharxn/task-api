@@ -1,11 +1,12 @@
 from typing import Annotated
+from dataclasses import dataclass, field
 
 from fastapi import Body, Depends, Header
 from supabase import Client
 
 from app.auth.client import get_supabase_client
 from app.auth.errors import AuthError
-from app.auth.models import Credentials
+from app.auth.models import Credentials, Profile
 from app.auth.service import AuthService
 
 
@@ -30,3 +31,16 @@ def require_access_token(authorization: Annotated[str | None, Header()] = None) 
     if len(parts) != 2 or parts[0].lower() != "bearer":
         raise AuthError(401, "Access token required")
     return parts[1]
+
+
+@dataclass(frozen=True)
+class AuthenticatedUser:
+    profile: Profile
+    token: str = field(repr=False)
+
+
+def get_current_user(
+    token: Annotated[str, Depends(require_access_token)],
+    service: Annotated[AuthService, Depends(get_auth_service)],
+) -> AuthenticatedUser:
+    return AuthenticatedUser(profile=service.verify_token(token), token=token)

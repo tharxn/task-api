@@ -58,6 +58,8 @@ class AuthApiTests(unittest.TestCase):
                 if request.headers.get("authorization") == f"Bearer {self.access_token}":
                     return httpx.Response(200, json=USER)
                 return httpx.Response(401, json={"msg": "Invalid JWT", "code": "bad_jwt"})
+            if request.url.path == "/auth/v1/logout":
+                return httpx.Response(204)
             return httpx.Response(404)
 
         self.transport = transport
@@ -161,3 +163,23 @@ class AuthApiTests(unittest.TestCase):
         response = self.http.get("/protected/profile", headers={"Authorization": f"Bearer {self.access_token}"})
         self.assertEqual(response.status_code, 503)
         self.assertNotIn("provider detail", response.text)
+
+    def test_dashboard_reuses_the_verified_user_dependency(self):
+        response = self.http.get("/protected/dashboard", headers={"Authorization": f"Bearer {self.access_token}"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["user_id"], USER["id"])
+
+    def test_all_protected_routes_reject_missing_and_invalid_tokens(self):
+        for method, path in (("GET", "/protected/profile"), ("GET", "/protected/dashboard"), ("POST", "/auth/logout")):
+            for token in (None, "invalid-token"):
+                with self.subTest(method=method, path=path, token=token):
+                    headers = {} if token is None else {"Authorization": f"Bearer {token}"}
+                    self.assertEqual(self.http.request(method, path, headers=headers).status_code, 401)
+
+    def test_logout_verifies_user_then_signs_out_only_their_session(self):
+        response = self.http.post("/auth/logout", headers={"Authorization": f"Bearer {self.access_token}"})
+        self.assertEqual(response.status_code, 204, response.text)
+        self.assertEqual(response.content, b"")
+        self.assertEqual([call.url.path for call in self.calls], ["/auth/v1/user", "/auth/v1/logout"])
+        self.assertEqual(self.calls[-1].headers["authorization"], f"Bearer {self.access_token}")
+        self.assertEqual(self.calls[-1].url.params["scope"], "local")
